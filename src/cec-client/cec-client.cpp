@@ -48,6 +48,7 @@
 #if defined(HAVE_CURSES_API)
   #include "curses/CursesControl.h"
 #endif
+#include "hid/HidKeyMap.h"
 
 using namespace CEC;
 using namespace P8PLATFORM;
@@ -62,6 +63,8 @@ int                   g_cecLogLevel(-1);
 int                   g_cecDefaultLogLevel(CEC_LOG_ALL);
 std::ofstream         g_logOutput;
 bool                  g_bShortLog(false);
+std::ofstream         g_ofsUsbHid;
+HidKeyMap             g_hidKeyMap;
 std::string           g_strPort;
 bool                  g_bSingleCommand(false);
 volatile sig_atomic_t g_bExit(0);
@@ -219,8 +222,15 @@ void CecLogMessage(void *UNUSED(cbParam), const cec_log_message* message)
   }
 }
 
-void CecKeyPress(void *UNUSED(cbParam), const cec_keypress* UNUSED(key))
+void CecKeyPress(void *UNUSED(cbParam), const cec_keypress* key)
 {
+  if (!g_ofsUsbHid.is_open())
+    return;
+  const auto usbHidCode = g_hidKeyMap.Get(key->keycode, !key->duration);
+  if (usbHidCode.empty())
+      return;
+  g_ofsUsbHid.write(reinterpret_cast<const char*>(usbHidCode.data()), usbHidCode.size());
+  g_ofsUsbHid.flush();
 }
 
 void CecCommand(void *UNUSED(cbParam), const cec_command* UNUSED(command))
@@ -311,6 +321,8 @@ void ShowHelpCommandLine(const char* strExec)
       "  -o --osd-name {osd name}    Use a custom osd name." << std::endl <<
       "  -m --monitor                Start a monitor-only client." << std::endl <<
       "  -i --info                   Shows information about how libCEC was compiled." << std::endl <<
+      "  -uh --usb-hid               Output to USB HID." << std::endl <<
+      "  -hk --usb-hid-keys          File with USB HID keys." << std::endl <<
       "  [COM PORT]                  The com port to connect to. If no COM" << std::endl <<
       "                              port is given, the client tries to connect to the" << std::endl <<
       "                              first device that is detected." << std::endl <<
@@ -1242,6 +1254,36 @@ bool ProcessCommandLineArguments(int argc, char *argv[])
         ++iArgPtr;
       }
 #endif
+      else if (!strcmp(argv[iArgPtr], "-uh") ||
+               !strcmp(argv[iArgPtr], "--usb-hid"))
+      {
+        if (argc >= iArgPtr + 2)
+        {
+          const std::string strUsbHid = argv[++iArgPtr];
+          g_ofsUsbHid.open(strUsbHid, std::ios_base::out|std::ios_base::binary);
+          std::cout << "using USB HID '" << strUsbHid << "'" << std::endl;
+        }
+        else
+        {
+          std::cout << "== skipped usb-hid parameter: no file given ==" << std::endl;
+        }
+        ++iArgPtr;
+      }
+      else if (!strcmp(argv[iArgPtr], "-hk") ||
+               !strcmp(argv[iArgPtr], "--usb-hid-keys"))
+      {
+        if (argc >= iArgPtr + 2)
+        {
+          const std::string strUsbHidKeyMap = argv[++iArgPtr];
+          const auto kc = g_hidKeyMap.Load(strUsbHidKeyMap);
+          std::cout << "using USB HID KEY MAP [" << kc << "] '" << strUsbHidKeyMap << "'" << std::endl;
+        }
+        else
+        {
+          std::cout << "== skipped usb-hid-keys parameter: no file given ==" << std::endl;
+        }
+        ++iArgPtr;
+      }
       else
       {
         g_strPort = argv[iArgPtr++];
@@ -1404,6 +1446,9 @@ int main (int argc, char *argv[])
 
   if (g_logOutput.is_open())
     g_logOutput.close();
+
+  if (g_ofsUsbHid.is_open())
+    g_ofsUsbHid.close();
 
 #if defined(HAVE_CURSES_API)
   if (g_cursesEnable)

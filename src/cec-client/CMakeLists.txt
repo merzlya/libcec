@@ -23,6 +23,9 @@ find_package(Threads REQUIRED)
 
 set(cecclient_SOURCES cec-client.cpp)
 
+# hid
+list(APPEND cecclient_SOURCES hid/HidKeyMap.cpp)
+
 # curses
 check_library_exists(curses initscr "" HAVE_CURSES_API)
 if (HAVE_CURSES_API)
